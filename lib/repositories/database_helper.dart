@@ -46,4 +46,24 @@ class DatabaseHelper {
     final result = await db.query('notes', orderBy: 'created_at DESC'); 
     return result.map((json) => NoteModel.fromMap(json)).toList();
   }
+  // Fungsi Update (Perbarui data yang sudah ada)
+  Future<int> updateNote(NoteModel note) async {
+    final db = await instance.database;
+    return await db.update(
+      'notes',
+      note.toMap(),
+      where: 'id = ?',
+      whereArgs: [note.id],
+    );
+  }
+
+  // Fungsi Delete (Hapus data berdasarkan ID)
+  Future<int> deleteNote(int id) async {
+    final db = await instance.database;
+    return await db.delete(
+      'notes',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
 }
