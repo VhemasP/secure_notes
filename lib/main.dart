@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:local_auth/local_auth.dart'; // Import package autentikasi
+import 'package:local_auth/local_auth.dart';
 import 'cubit/note_cubit.dart';
 import 'cubit/note_state.dart';
 import 'models/note_model.dart';
+import 'utils/crypto_helper.dart'; // Import modul crypto yang baru
 
 void main() {
   runApp(const MyApp());
@@ -23,7 +24,6 @@ class MyApp extends StatelessWidget {
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
           useMaterial3: true,
         ),
-        // Mengarahkan tampilan awal ke Lock Screen, bukan langsung ke daftar catatan
         home: const LockScreen(),
       ),
     );
@@ -46,53 +46,100 @@ class _LockScreenState extends State<LockScreen> {
   @override
   void initState() {
     super.initState();
-    // Otomatis meminta sidik jari/PIN saat aplikasi dibuka
     _authenticate();
   }
 
   Future<void> _authenticate() async {
     try {
-      setState(() {
-        isAuthenticating = true;
-      });
+      setState(() { isAuthenticating = true; });
 
-      // Memunculkan pop-up sensor biometrik bawaan HP
       final bool didAuthenticate = await auth.authenticate(
-        localizedReason: 'Pindai sidik jari atau masukkan PIN untuk membuka brankas rahasia',
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false, // Bisa pakai PIN kalau sensor wajah/jari gagal
-        ),
+        localizedReason: 'Pindai sidik jari atau masukkan PIN perangkat',
+        biometricOnly: false,
+        persistAcrossBackgrounding: true,
       );
 
       if (didAuthenticate) {
-        setState(() {
-          isAuthenticated = true;
-        });
-        // Baru memuat catatan dari database SETELAH autentikasi berhasil
+        // Jika biometrik lolos, minta Master Password sebelum membuka akses data
         if (mounted) {
-          context.read<NoteCubit>().loadSecureNotes();
+          _showMasterPasswordDialog();
         }
       }
     } catch (e) {
       print('Error Autentikasi: $e');
     } finally {
       if (mounted) {
-        setState(() {
-          isAuthenticating = false;
-        });
+        setState(() { isAuthenticating = false; });
       }
     }
   }
 
+  // --- FITUR BARU: Dialog Input Master Password ---
+  void _showMasterPasswordDialog() {
+    final passwordController = TextEditingController();
+    bool isError = false;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Tidak bisa ditutup sembarangan
+      builder: (dialogContext) {
+        return StatefulBuilder(
+            builder: (context, setState) {
+              return AlertDialog(
+                title: const Text('Dekripsi Data'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Masukkan Master Password untuk menyusun kunci AES Anda.',
+                      style: TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: true, // Sembunyikan teks password
+                      decoration: InputDecoration(
+                        labelText: 'Master Password',
+                        errorText: isError ? 'Password tidak boleh kosong' : null,
+                        prefixIcon: const Icon(Icons.vpn_key),
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white),
+                    onPressed: () {
+                      final pass = passwordController.text;
+                      if (pass.isNotEmpty) {
+                        // 1. Olah input menjadi Kunci AES di CryptoHelper
+                        CryptoHelper.setMasterPassword(pass);
+
+                        Navigator.pop(dialogContext); // Tutup dialog
+
+                        // 2. Izinkan masuk ke UI utama dan load data
+                        this.setState(() { isAuthenticated = true; });
+                        context.read<NoteCubit>().loadSecureNotes();
+                      } else {
+                        setState(() { isError = true; });
+                      }
+                    },
+                    child: const Text('Buka Brankas'),
+                  ),
+                ],
+              );
+            }
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    // Jika berhasil masuk, tampilkan layar daftar catatan
     if (isAuthenticated) {
       return const NoteListScreen();
     }
 
-    // Jika belum, tampilkan layar gembok
     return Scaffold(
       backgroundColor: Colors.blue.shade50,
       body: Center(
@@ -101,26 +148,16 @@ class _LockScreenState extends State<LockScreen> {
           children: [
             Icon(Icons.lock_outline, size: 100, color: Colors.blue.shade800),
             const SizedBox(height: 20),
-            const Text(
-              'Aplikasi Terkunci',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-            ),
+            const Text('Aplikasi Terkunci', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text(
-              'Akses ditolak. Silakan verifikasi identitas Anda.',
-              style: TextStyle(color: Colors.grey),
-            ),
+            const Text('Verifikasi biometrik & kata sandi diperlukan.', style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 30),
             ElevatedButton.icon(
               icon: isAuthenticating
                   ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                   : const Icon(Icons.fingerprint),
               label: Text(isAuthenticating ? 'Memverifikasi...' : 'Buka Kunci'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade800,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.blue.shade800, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12)),
               onPressed: isAuthenticating ? null : _authenticate,
             ),
           ],
@@ -130,7 +167,7 @@ class _LockScreenState extends State<LockScreen> {
   }
 }
 
-// --- LAYAR DAFTAR CATATAN (Sama seperti sebelumnya) ---
+// --- LAYAR DAFTAR CATATAN (Tidak ada perubahan logika, persis seperti sebelumnya) ---
 class NoteListScreen extends StatelessWidget {
   const NoteListScreen({super.key});
 
@@ -147,9 +184,7 @@ class NoteListScreen extends StatelessWidget {
           if (state is NoteLoading) {
             return const Center(child: CircularProgressIndicator());
           } else if (state is NoteError) {
-            return Center(
-              child: Text(state.message, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-            );
+            return Center(child: Text(state.message, style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)));
           } else if (state is NoteLoaded) {
             if (state.notes.isEmpty) {
               return const Center(child: Text('Belum ada catatan rahasia.', style: TextStyle(color: Colors.grey)));
@@ -196,12 +231,7 @@ class NoteListScreen extends StatelessWidget {
     final contentController = TextEditingController();
 
     void runStressTest(int bytesCount, String label, BuildContext dialogContext) {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (c) => const Center(child: CircularProgressIndicator()),
-      );
-
+      showDialog(context: context, barrierDismissible: false, builder: (c) => const Center(child: CircularProgressIndicator()));
       Future.delayed(const Duration(milliseconds: 100), () {
         final dummyText = List.filled(bytesCount, 'A').join('');
         context.read<NoteCubit>().addSecureNote('Eksperimen $label', dummyText);
@@ -258,7 +288,6 @@ class NoteListScreen extends StatelessWidget {
   void _showEditNoteDialog(BuildContext context, NoteModel note) {
     final titleController = TextEditingController(text: note.title);
     final contentController = TextEditingController(text: note.contentData);
-
     showDialog(
       context: context,
       builder: (dialogContext) {
