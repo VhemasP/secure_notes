@@ -1,8 +1,13 @@
 package com.example.secure_notes_mvp
 
-// Pastikan yang diimpor adalah FlutterFragmentActivity
+import android.view.WindowManager
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.engine.FlutterEngine
 
-// Ubah kelas turunan menjadi FlutterFragmentActivity
 class MainActivity: FlutterFragmentActivity() {
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        // Memasang FLAG_SECURE di level Engine Flutter
+        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        super.configureFlutterEngine(flutterEngine)
+    }
 }
