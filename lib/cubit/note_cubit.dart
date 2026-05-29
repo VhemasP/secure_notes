@@ -1,27 +1,23 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'note_state.dart';
 import '../models/note_model.dart';
 import '../repositories/database_helper.dart';
 import '../utils/crypto_helper.dart';
+import 'note_state.dart';
 
 class NoteCubit extends Cubit<NoteState> {
+  final DatabaseHelper dbHelper = DatabaseHelper.instance;
+
   NoteCubit() : super(NoteInitial());
 
-  final dbHelper = DatabaseHelper.instance;
-
-  // 1. FUNGSI LOAD/READ NOTES
   Future<void> loadSecureNotes() async {
     try {
       emit(NoteLoading());
-
-      final encryptedNotes = await dbHelper.readAllNotes();
-      final stopwatch = Stopwatch()..start();
+      final notes = await dbHelper.readAllNotes();
 
       List<NoteModel> decryptedNotes = [];
-
-      for (var note in encryptedNotes) {
-        final plainText = CryptoHelper.decryptData(note.contentData);
-
+      // Mendekripsi catatan satu per satu secara asinkron di background
+      for (var note in notes) {
+        final plainText = await CryptoHelper.decryptDataAsync(note.contentData);
         decryptedNotes.add(
             NoteModel(
               id: note.id,
@@ -32,24 +28,27 @@ class NoteCubit extends Cubit<NoteState> {
         );
       }
 
-      stopwatch.stop();
-      print('⏱️ [Eksperimen] Waktu Dekripsi ${encryptedNotes.length} data: ${stopwatch.elapsedMilliseconds} ms');
-
       emit(NoteLoaded(decryptedNotes));
     } catch (e) {
-      emit(NoteError('Gagal memuat data: $e'));
+      emit(NoteError('Gagal memuat catatan: $e'));
     }
   }
 
-  // 2. FUNGSI CREATE/ADD NOTE
   Future<void> addSecureNote(String title, String plainTextContent) async {
     try {
       emit(NoteLoading());
 
+      // MULAI MENGHITUNG WAKTU PERFORMA (BENCHMARK)
       final stopwatch = Stopwatch()..start();
-      final encryptedContent = CryptoHelper.encryptData(plainTextContent);
+
+      // Memanggil fungsi background
+      final encryptedContent = await CryptoHelper.encryptDataAsync(plainTextContent);
+
       stopwatch.stop();
-      print('⏱️ [Eksperimen] Waktu Enkripsi: ${stopwatch.elapsedMilliseconds} ms');
+      print('==================================================');
+      print('⏱️ HASIL UJI COBA: ${plainTextContent.length} Karakter');
+      print('⏱️ WAKTU ENKRIPSI: ${stopwatch.elapsedMilliseconds} milidetik (ms)');
+      print('==================================================');
 
       final newNote = NoteModel(
         title: title,
@@ -60,17 +59,14 @@ class NoteCubit extends Cubit<NoteState> {
       await dbHelper.insertNote(newNote);
       await loadSecureNotes();
     } catch (e) {
-      emit(NoteError('Gagal menyimpan data: $e'));
+      emit(NoteError('Gagal menyimpan catatan: $e'));
     }
   }
 
-  // 3. FUNGSI UPDATE SECURE NOTE (Pastikan nama ini sama persis dengan di main.dart)
   Future<void> updateSecureNote(int id, String title, String plainTextContent, String createdAt) async {
     try {
       emit(NoteLoading());
-
-      // Teks baru dienkripsi ulang sebelum masuk database
-      final encryptedContent = CryptoHelper.encryptData(plainTextContent);
+      final encryptedContent = await CryptoHelper.encryptDataAsync(plainTextContent);
 
       final updatedNote = NoteModel(
         id: id,
@@ -82,18 +78,17 @@ class NoteCubit extends Cubit<NoteState> {
       await dbHelper.updateNote(updatedNote);
       await loadSecureNotes();
     } catch (e) {
-      emit(NoteError('Gagal memperbarui data: $e'));
+      emit(NoteError('Gagal memperbarui catatan: $e'));
     }
   }
 
-  // 4. FUNGSI DELETE SECURE NOTE (Pastikan nama ini sama persis dengan di main.dart)
   Future<void> deleteSecureNote(int id) async {
     try {
       emit(NoteLoading());
       await dbHelper.deleteNote(id);
       await loadSecureNotes();
     } catch (e) {
-      emit(NoteError('Gagal menghapus data: $e'));
+      emit(NoteError('Gagal menghapus catatan: $e'));
     }
   }
 }
