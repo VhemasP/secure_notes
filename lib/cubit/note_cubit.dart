@@ -30,7 +30,13 @@ class NoteCubit extends Cubit<NoteState> {
 
       emit(NoteLoaded(decryptedNotes));
     } catch (e) {
-      emit(NoteError('Gagal memuat catatan: $e'));
+      // CEK JIKA ERROR DISEBABKAN OLEH ARGUMEN/PADDING DEKRIPSI YANG SALAH
+      if (e.toString().contains('Invalid argument') || e.toString().contains('pad block')) {
+        CryptoHelper.clearKey(); // Hapus key dari memori karena tidak valid
+        emit(NoteError('Master Password yang Anda masukkan salah. Silakan coba lagi.'));
+      } else {
+        emit(NoteError('Gagal memuat catatan: $e'));
+      }
     }
   }
 
